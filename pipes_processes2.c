@@ -3,117 +3,58 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <stdlib.h>
 
 /**
- * Executes the command "cat scores | grep <argument> | sort".
- * This creates three processes:
- * - P1 (Parent): executes "cat scores"
- * - P2 (Child): executes "grep <argument>"
- * - P3 (Child's Child): executes "sort"
+ * Executes the command "cat scores | grep Lakers".  In this quick-and-dirty
+ * implementation the parent doesn't wait for the child to finish and
+ * so the command prompt may reappear before the child terminates.
+ *
  */
 
 int main(int argc, char **argv)
 {
-    int pipefd1[2];  // Pipe between cat and grep
-    int pipefd2[2];  // Pipe between grep and sort
-    int pid1, pid2;
+  int pipefd[2];
+  int pid;
 
-    if (argc != 2)
+  char *cat_args[] = {"cat", "scores", NULL};
+  char *grep_args[] = {"grep", "Lakers", NULL};
+
+  // make a pipe (fds go in pipefd[0] and pipefd[1])
+
+  pipe(pipefd);
+
+  pid = fork();
+
+  if (pid == 0)
     {
-        fprintf(stderr, "Usage: %s <search term>\n", argv[0]);
-        exit(1);
+      // child gets here and handles "grep Villanova"
+
+      // replace standard input with input part of pipe
+
+      dup2(pipefd[0], 0);
+
+      // close unused hald of pipe
+
+      close(pipefd[1]);
+
+      // execute grep
+
+      execvp("grep", grep_args);
     }
-
-    char *cat_args[] = {"cat", "scores", NULL};  // cat command arguments
-    char *grep_args[] = {"grep", argv[1], NULL}; // grep command with user argument
-    char *sort_args[] = {"sort", NULL};          // sort command
-
-    // Create first pipe
-    if (pipe(pipefd1) == -1)
+  else
     {
-        perror("pipe");
-        exit(1);
+      // parent gets here and handles "cat scores"
+
+      // replace standard output with output part of pipe
+
+      dup2(pipefd[1], 1);
+
+      // close unused unput half of pipe
+
+      close(pipefd[0]);
+
+      // execute cat
+
+      execvp("cat", cat_args);
     }
-
-    pid1 = fork();
-
-    if (pid1 < 0)
-    {
-        perror("fork");
-        exit(1);
-    }
-
-    if (pid1 == 0)
-    {
-        // Child process (P2): will handle "grep <argument>"
-
-        // Create second pipe for grep to sort communication
-        if (pipe(pipefd2) == -1)
-        {
-            perror("pipe");
-            exit(1);
-        }
-
-        pid2 = fork();
-
-        if (pid2 < 0)
-        {
-            perror("fork");
-            exit(1);
-        }
-
-        if (pid2 == 0)
-        {
-            // Child's Child (P3): will handle "sort"
-
-            // Replace standard input with input part of pipe 2 (output of grep)
-            dup2(pipefd2[0], 0);
-
-            // Close both ends of both pipes
-            close(pipefd2[1]); // Close write end of pipe 2
-            close(pipefd1[0]); // Close read end of pipe 1
-            close(pipefd1[1]); // Close write end of pipe 1
-
-            // Execute sort
-            execvp("sort", sort_args);
-            perror("execvp sort"); // Only reached if execvp fails
-        }
-        else
-        {
-            // Child process (P2): "grep <argument>"
-
-            // Replace standard input with input part of pipe 1 (output of cat)
-            dup2(pipefd1[0], 0);
-
-            // Replace standard output with output part of pipe 2 (input to sort)
-            dup2(pipefd2[1], 1);
-
-            // Close all ends of both pipes
-            close(pipefd1[1]); // Close write end of pipe 1
-            close(pipefd2[0]); // Close read end of pipe 2
-            close(pipefd2[1]); // Close write end of pipe 2
-
-            // Execute grep
-            execvp("grep", grep_args);
-            perror("execvp grep"); // Only reached if execvp fails
-        }
-    }
-    else
-    {
-        // Parent process (P1): will handle "cat scores"
-
-        // Replace standard output with write end of pipe 1 (input to grep)
-        dup2(pipefd1[1], 1);
-
-        // Close both ends of both pipes
-        close(pipefd1[0]); // Close read end of pipe 1
-        close(pipefd1[1]); // Close write end of pipe 1
-
-        // Execute cat
-        execvp("cat", cat_args);
-        perror("execvp cat"); // Only reached if execvp fails
-    }
-
-    return 0;
 }
